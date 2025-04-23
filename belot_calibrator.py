@@ -5,15 +5,15 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 import tkinter as tk
-from datetime import datetime
+from tkinter import messagebox
 import json
 import shutil
 from rich.console import Console
 from rich.progress import Progress
 
-# User and time information
+# Current user and time information
 USER = "wolketich"
-CURRENT_TIME = "2025-04-23 08:30:33"
+CURRENT_TIME = "2025-04-23 08:33:58"
 
 # Card info
 SUITS = ['♠', '♥', '♦', '♣']
@@ -25,7 +25,7 @@ CARDS_DIR = os.path.join(BASE_DIR, 'cards')
 TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 MAPPING_FILE = os.path.join(BASE_DIR, 'card_mapping.json')
 
-# Card dimensions (for future use)
+# Card dimensions
 CARD_WIDTH = 180
 CARD_HEIGHT = 250
 CARD_GAP = 15
@@ -81,17 +81,26 @@ def identify_cards():
     # Create mapping dictionary
     card_mapping = {}
     
+    # Special case for card 0.png (card back)
+    if "0.png" in card_files:
+        card_mapping["0.png"] = {"rank": "back", "suit": "back"}
+        console.print("[cyan]Card 0.png automatically marked as card back[/cyan]")
+    
     # Create GUI
     root = tk.Tk()
     root.title("Card Identification")
-    root.geometry("400x500")
+    root.geometry("400x550")
     
     # Variables
     current_index = [0]
-    current_card_var = tk.StringVar(value=card_files[0])
+    if "0.png" in card_files:
+        current_index = [1]  # Skip card back in GUI
+        
+    current_card_var = tk.StringVar(value=card_files[current_index[0]])
     rank_var = tk.StringVar(value=RANKS[0])
     suit_var = tk.StringVar(value=SUITS[0])
     status_var = tk.StringVar(value="")
+    progress_var = tk.StringVar(value=f"Card 1 of {len(card_files)-1}")
     
     # Frame for card display
     card_frame = tk.Frame(root)
@@ -111,6 +120,16 @@ def identify_cards():
             card_label.config(image=photo)
             card_label.image = photo  # Keep a reference
             current_card_var.set(f"Card: {card_files[current_index[0]]}")
+            
+            # Update progress
+            progress_var.set(f"Card {current_index[0]} of {len(card_files)-1}")
+            
+            # If card was previously identified, set the dropdown values
+            card_id = card_files[current_index[0]]
+            if card_id in card_mapping:
+                rank_var.set(card_mapping[card_id]['rank'])
+                suit_var.set(card_mapping[card_id]['suit'])
+                
         except Exception as e:
             status_var.set(f"Error: {e}")
     
@@ -125,15 +144,19 @@ def identify_cards():
     current_card_label = tk.Label(info_frame, textvariable=current_card_var, font=("Arial", 12))
     current_card_label.grid(row=0, column=0, columnspan=2, pady=5)
     
+    # Progress label
+    progress_label = tk.Label(info_frame, textvariable=progress_var, font=("Arial", 10))
+    progress_label.grid(row=1, column=0, columnspan=2, pady=5)
+    
     # Rank selection
-    tk.Label(info_frame, text="Rank:").grid(row=1, column=0, sticky="e", padx=5, pady=5)
+    tk.Label(info_frame, text="Rank:").grid(row=2, column=0, sticky="e", padx=5, pady=5)
     rank_menu = tk.OptionMenu(info_frame, rank_var, *RANKS)
-    rank_menu.grid(row=1, column=1, sticky="w", padx=5, pady=5)
+    rank_menu.grid(row=2, column=1, sticky="w", padx=5, pady=5)
     
     # Suit selection
-    tk.Label(info_frame, text="Suit:").grid(row=2, column=0, sticky="e", padx=5, pady=5)
+    tk.Label(info_frame, text="Suit:").grid(row=3, column=0, sticky="e", padx=5, pady=5)
     suit_menu = tk.OptionMenu(info_frame, suit_var, *SUITS)
-    suit_menu.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+    suit_menu.grid(row=3, column=1, sticky="w", padx=5, pady=5)
     
     # Navigation buttons
     nav_frame = tk.Frame(root)
@@ -155,7 +178,7 @@ def identify_cards():
             status_var.set("All cards identified!")
     
     def prev_card():
-        if current_index[0] > 0:
+        if current_index[0] > 1:  # Don't go back to card 0 (back)
             current_index[0] -= 1
             update_card_image()
             
@@ -175,8 +198,8 @@ def identify_cards():
         # Check if all cards are identified
         if len(card_mapping) < len(card_files):
             unidentified = len(card_files) - len(card_mapping)
-            if not tk.messagebox.askyesno("Confirmation", 
-                                          f"{unidentified} cards are not identified. Do you want to continue?"):
+            if not messagebox.askyesno("Confirmation", 
+                                       f"{unidentified} cards are not identified. Do you want to continue?"):
                 return
         
         # Save mapping and close
@@ -235,6 +258,10 @@ def create_templates(card_mapping):
         rank = card_info['rank']
         suit = card_info['suit']
         
+        # Skip card back
+        if rank == "back" and suit == "back":
+            continue
+        
         # Read the card image
         card_path = os.path.join(CARDS_DIR, card_file)
         card = cv2.imread(card_path)
@@ -266,6 +293,15 @@ def create_templates(card_mapping):
         # Once we have all ranks and suits, we can stop
         if len(processed_ranks) == len(RANKS) and len(processed_suits) == len(SUITS):
             break
+    
+    # Also create a template for card back
+    back_path = os.path.join(CARDS_DIR, "0.png")
+    if os.path.exists(back_path):
+        back_img = cv2.imread(back_path)
+        if back_img is not None:
+            # Save small version of back for detection
+            cv2.imwrite(os.path.join(TEMPLATES_DIR, 'back.png'), back_img[0:80, 0:80])
+            console.print("Created template for card back")
     
     console.print("[green]Templates created successfully![/green]")
 
